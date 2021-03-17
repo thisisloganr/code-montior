@@ -1,0 +1,154 @@
+import requests
+import os
+from datetime import datetime, timedelta, date
+import pandas as pd
+import filecmp
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
+# Set days
+today = (datetime.now()).strftime('%Y-%m-%d')
+yest = (datetime.now() - timedelta(1)).strftime('%Y-%m-%d')
+two = (datetime.now() - timedelta(2)).strftime('%Y-%m-%d')
+
+# INSERT YOUR SITE NAME
+site_name = ""
+
+# File input
+# INSERT GOOGLE SHEETS URL WITH SHARE ACTIVATED AND A LIST OF URLS TO MONITOR IN COLUMN A
+fp = ""
+fp = fp.replace("edit?pli=1#gid","export?format=csv&gid").replace("edit#gid","export?format=csv&gid")
+
+# Create dataFrame
+df = pd.read_csv(fp)
+
+url = df[list(df.columns)[0]] .tolist()
+
+url.sort()
+
+no_match = ""
+new = ""
+link = ""
+
+for i in range(len(url)):    
+    r = requests.get(url[i]) 
+    if url[i] == "https://www.domain.com/":
+        pname = "Home"
+    elif url[i] == "https://www.domain.com/blog/":
+        pname = "Blog"
+    else:
+        # REPLACE THE DOMAIN WITH YOUR OWN AND THE REPLACE LOGIC TO MATCH YOUR SITE
+        pname = url[i].replace("https://www.domain.com/","").replace("/"," ").replace("-"," ").replace(".aspx","").replace(".asp","").title()
+    
+    # Set date-based file names
+    y = pname + " " + yest + ".txt"
+    t = pname + " " + today + ".txt"
+
+    # Remove the file from two days ago
+    try:
+        os.remove(pname + " " + two + ".txt")        
+    except:
+        pass
+
+    # Create today's file 
+    with open(t,'w') as f:
+        f.write(r.text)
+    
+    def delete_line_by_condition(original_file, condition):
+        #In a file, delete the lines at line number in given list
+        dummy_file = original_file + '.bak'
+        is_skipped = False
+        # Open original file in read only mode and dummy file in write mode
+        with open(original_file, 'r') as read_obj, open(dummy_file, 'w') as write_obj:
+            # Line by line copy data from original file to dummy file
+            for line in read_obj:
+                # If current line matches the given condition then skip that line
+                if condition(line) == False:
+                    write_obj.write(line)
+                else:
+                    is_skipped = True
+        # If any line is skipped then rename dummy file as original file
+        if is_skipped:
+            os.remove(original_file)
+            os.rename(dummy_file, original_file)
+        else:
+            os.remove(dummy_file)
+    
+    def delete_line_with_word(file_name, word):
+    # Delete lines from a file that contains a given word / sub-string
+        delete_line_by_condition(file_name, lambda x : word in x )
+    
+    # REPLACE WITH YOUR OWN TEXT TO SKIP LINES
+    words = ["this",
+             "that",
+             "the-other-thing"]
+    for a in range(len(words)):
+        delete_line_with_word(t, words[a])
+                
+    # Compare yesterday's file to today's
+    try:
+        result = filecmp.cmp((y), (t), shallow=False) 
+        if result == True:
+            #print(pname + ": Files Match")
+            pass
+        else:
+            link = "<a href=\"" + url[i] + "\">" + pname + "</a>"
+            no_match = no_match + (link + ": Files Do Not Match" + "</br>" + "</br>")
+    except:
+        link = "<a href=\"" + url[i] + "\">" + pname + "</a>"
+        new = new + (link + ": First Day of Page's Monitoring" + "</br>" + "</br>")
+        pass
+# INSERT YOUR OWN VALUES
+sender_address = ""
+sender_pass = ""
+recipients = ["john@example.com","mary@example.com"]
+
+# Email when today's source code does not match yesterday's
+if "Do Not Match" in no_match:
+    mail_content = site_name + " " + "The following pages had a code change:" + "</br>" + "</br>" + no_match
+    message = MIMEMultipart()
+    message['From'] = sender_address
+    message['To'] = ', '.join(recipients)
+    message['Subject'] = 'Source code changes found on ' +   site_name 
+    message.attach(MIMEText(mail_content, 'html'))
+    session = smtplib.SMTP('smtp.gmail.com', 465) #use gmail with port
+    session.login(sender_address, sender_pass) #login with mail_id and password
+    text = message.as_string()
+    session.sendmail(sender_address, receiver_address, text)
+    session.quit()
+    print('No Match Email Sent')
+# Email when no change found
+elif no_match == "":
+    mail_content = " Woohoo! None of the monitored pages had a source code change!"
+    message = MIMEMultipart()
+    message['From'] = sender_address
+    message['To'] = receiver_address
+    message['Subject'] = 'No source code changes on ' +   site_name 
+    message.attach(MIMEText(mail_content, 'html'))
+    session = smtplib.SMTP('smtp.gmail.com', 465) #use gmail with port
+    session.login(sender_address, sender_pass) #login with mail_id and password
+    text = message.as_string()
+    session.sendmail(sender_address, receiver_address, text)
+    session.quit()
+    print('No Change Email Sent')    
+else:
+    pass
+# Email when new page to monitor has been added
+if "First Day" in new:
+    mail_content = site_name + " The following pages have been added:" + "</br>" + "</br>" + new
+    message = MIMEMultipart()
+    message['From'] = sender_address
+    message['To'] = receiver_address
+    message['Subject'] = 'New source code monitor found on ' +   site_name 
+    message.attach(MIMEText(mail_content, 'html'))
+    session = smtplib.SMTP('smtp.gmail.com', 465) #use gmail with port
+    session.login(sender_address, sender_pass) #login with mail_id and password
+    text = message.as_string()
+    session.sendmail(sender_address, receiver_address, text)
+    session.quit()
+    print('New Monitor Email Sent')
+else:
+    pass
+# End of process
+print("Scan Complete")
